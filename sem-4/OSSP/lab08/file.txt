@@ -1,0 +1,5 @@
+ECHO Nikita Garashchuk
+LIST
+INFO
+CD ../..
+LIST

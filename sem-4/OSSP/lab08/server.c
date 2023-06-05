@@ -18,12 +18,17 @@
 
 #define BUFFER_SIZE 1024
 #define MAX_THREAD 5
-#define PORT 8081
+#define PORT 8080
 
-int count_thread = 0;
+int count_thread = 1;
 char path_to_server[BUFFER_SIZE];
-char info_server[] = {"==============================СЕРВЕР NIKITA==============================\0"};
+char info_server[] = {"==============================СЕРВЕР NIKITA=============================="};
 bool server_free = false;
+
+struct server_args{
+    int socket;
+    int adrlen;
+};
 
 char* removeSubstring(char* str, const char* sub) {
     size_t len = strlen(sub);
@@ -65,7 +70,9 @@ char* foo_LIST(const char* current_dir) {
     DIR* directory;
     struct dirent* de;
     char *file_names = (char*)malloc(sizeof(char) * BUFFER_SIZE);
-
+    strcpy(file_names, "Current working directory: ");
+    strcat(file_names, path_to_server);
+    strcat(file_names, "\n");
     directory = opendir(current_dir); //открытие каталога
     if (!directory){
         return file_names;
@@ -133,35 +140,39 @@ void *handle_client(void *arg) {
             send(client_socket, buffer, BUFFER_SIZE,0);
         }
         else if(strstr(buffer, "INFO")){
-            send(client_socket, info_server, strlen(info_server),0);
+            strcpy(buffer, "Path: ");
+            buffer = foo(buffer, path_to_server);
+            buffer = foo(buffer, "\n");
+            buffer = foo(buffer, info_server);
+            send(client_socket, buffer, BUFFER_SIZE,0);
         }
         else if(strstr(buffer, "CD")){
+            char tmp_path[BUFFER_SIZE];
             buffer = removeSubstring(buffer, "CD ");
-            if (getcwd(path_to_server, BUFFER_SIZE) != NULL) {
-                printf("Current working directory: %s\n", path_to_server);
+            if (getcwd(tmp_path, BUFFER_SIZE) != NULL) {
+                printf("Current working directory: %s\n", tmp_path);
             } else {
                 perror("getcwd() error");
                 send(client_socket, "Ошибка при изменении каталога", sizeof("Ошибка при изменении каталога"),0);
                 continue;
             }
-            strcat(path_to_server, "/");
-            strcat(path_to_server, buffer);
-            if (chdir(path_to_server) != 0) {
+            strcat(tmp_path, "/");
+            strcat(tmp_path, buffer);
+            if (chdir(tmp_path) != 0) {
                 perror("chdir() error");
                 send(client_socket, "Ошибка при изменении каталога", sizeof("Ошибка при изменении каталога"),0);
                 continue;
             }
             if (getcwd(path_to_server, BUFFER_SIZE) != NULL) {
-                    printf("New working directory: %s\n", path_to_server);
-                } else {
-                    perror("getcwd() error");
-                     send(client_socket, "Ошибка при изменении каталога", sizeof("Ошибка при изменении каталога"),0);
-                    continue;
+                printf("New working directory: %s\n", path_to_server);
+            } else {
+                perror("getcwd() error");
+                send(client_socket, "Ошибка при изменении каталога", sizeof("Ошибка при изменении каталога"),0);
+                continue;
             }
-            strcpy(buffer, "New path: ");
+            strcpy(buffer, "Path: ");
             strcat(buffer, path_to_server);
             send(client_socket, buffer, BUFFER_SIZE,0);
-
         }
         else if(strstr(buffer, "QUIT")){
             send(client_socket, "BYE BYE", strlen("BYE BYE"),0);
@@ -174,57 +185,20 @@ void *handle_client(void *arg) {
     }
     close(client_socket);
     free(buffer);
-    printf("Client %d ends\n", count_thread);
+    printf("Client %d ends\n", count_thread-1);
     count_thread--;
     if(!count_thread)
         server_free=true;
     pthread_exit(NULL);
 }
-
-int main(int argc, char *argv[]) {
-    if(argc<2){
-        printf("Use: %s <path_to_server>\n", argv[0]);
-        exit(-1);
-    }
-    strcpy(path_to_server, argv[1]);
-    int server_socket, client_socket;
-    struct sockaddr_in server_address, client_address;
-    int adrlen = sizeof(client_address);
+void *handle_server(void *arg) {
+    struct server_args server_info = *(struct server_args *)arg;
+    struct sockaddr_in client_address;
     pthread_t clients[MAX_THREAD];
-
-    // Создание сокета
-    server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    if (server_socket == -1) {
-        perror("Socket creation failed");
-        return 1;
-    }
-
-    int reuse = 1;
-    setsockopt(server_socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-
-    // Настройка адреса сервера
-    memset(&server_address, 0, sizeof(server_address));
-    server_address.sin_family = AF_INET;
-    server_address.sin_addr.s_addr = INADDR_ANY;
-    server_address.sin_port = htons(PORT);      // Используйте нужный порт
-
-    // Привязка сокета к адресу
-    if (bind(server_socket, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
-        perror(strerror(errno));
-        return 1;
-    }
-
-    // Прослушивание входящих соединений
-    if (listen(server_socket, MAX_THREAD) == -1) {
-        perror("Listening failed");
-        return 1;
-    }
-
-    printf("Server started. Waiting for incoming connections...\n");
-    printf("%s\n",info_server);
-
-    // Чтение данных от клиента
-    while (count_thread || !server_free) {
+    int client_socket;
+    int adrlen = server_info.adrlen;
+    int server_socket = server_info.socket;
+    while (!server_free) {
         fd_set read_fds;
         FD_ZERO(&read_fds);
         FD_SET(server_socket, &read_fds);
@@ -247,7 +221,6 @@ int main(int argc, char *argv[]) {
         if(!FD_ISSET(server_socket,&tmp_fds))
             continue;
 
-
         client_socket = accept(server_socket, (struct sockaddr *)&client_address, (socklen_t*)&adrlen);
         if (client_socket < 0) {
             printf("Ошибка при подключении клиента\n");
@@ -262,12 +235,70 @@ int main(int argc, char *argv[]) {
 
         pthread_create(&clients[count_thread], NULL, handle_client, (void *)&client_socket);
         count_thread++;
-        printf("Count clients: %d\n", count_thread);
+        printf("Count clients: %d\n", count_thread-1);
+    }
+    pthread_exit(NULL);
+}
+
+int main(int argc, char *argv[]) {
+    if(argc<2){
+        printf("Use: %s <path_to_server>\n", argv[0]);
+        exit(-1);
+    }
+    chdir(argv[1]);
+    getcwd(path_to_server, BUFFER_SIZE);
+    struct server_args args;
+    strcpy(path_to_server, argv[1]);
+    struct sockaddr_in server_address, client_address;
+    args.adrlen = sizeof(client_address);
+    pthread_t server;
+
+    // Создание сокета
+    args.socket = socket(AF_INET, SOCK_STREAM, 0);
+    if (args.socket == -1) {
+        perror("Socket creation failed");
+        return 1;
     }
 
+    int reuse = 1;
+    setsockopt(args.socket, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    // Настройка адреса сервера
+    memset(&server_address, 0, sizeof(server_address));
+    server_address.sin_family = AF_INET;
+    server_address.sin_addr.s_addr = INADDR_ANY;
+    server_address.sin_port = htons(PORT);      // Используйте нужный порт
+
+    // Привязка сокета к адресу
+    if (bind(args.socket, (struct sockaddr*)&server_address, sizeof(server_address)) == -1) {
+        perror(strerror(errno));
+        return 1;
+    }
+
+    // Прослушивание входящих соединений
+    if (listen(args.socket, MAX_THREAD) == -1) {
+        perror("Listening failed");
+        return 1;
+    }
+
+    printf("Server started. Waiting for incoming connections...\n");
+    printf("%s\n",info_server);
+    printf("Максимальное количество подключений: 4\n");
+    printf("Для завершения работы сервера нужно ввести \"q\"\n");
+
+    pthread_create(&server, NULL, handle_server, (void *)&args);
+
+    char end;
+    while (1){
+        end = getchar();
+        if(end == 'q')
+            break;
+    }
+    server_free=true;
+    printf("Server shutdown\n");
+    pthread_join(server, NULL);
     // Закрытие соединения
-    //close(client_socket);
-    close(server_socket);
+    close(args.socket);
 
     return 0;
 }

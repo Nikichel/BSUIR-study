@@ -16,7 +16,7 @@
 
 
 #define BUFFER_SIZE 1024
-#define PORT 8081
+#define PORT 8080
 
 char* removeSubstring(char* str, const char* sub) {
     size_t len = strlen(sub);
@@ -36,7 +36,7 @@ int main() {
     char* buffer=(char*)malloc(sizeof(char)* BUFFER_SIZE);
     FILE* file;
     char* file_name=(char*)malloc(sizeof(char)* BUFFER_SIZE);
-
+    //getcwd(path_to_server,BUFFER_SIZE);
     // Создание сокета
     client_socket = socket(AF_INET, SOCK_STREAM, 0);
     if (client_socket == -1) {
@@ -56,11 +56,10 @@ int main() {
     }
 
     char option[BUFFER_SIZE];
-
+    printf("ECHO-отправить запрос\nINFO-получить информацию о сервере\nCD-сменить каталог сервера\nLIST-список объектов из текущего каталога\nQUIT-выход из программы\n");
     while(1){
-        printf("ECHO-отправить запрос\nINFO-получить информацию о сервере\nCD-сменить каталог сервера\nLIST-список объектов из текущего каталога\nQUIT-выход из программы\n>");
+        printf("\n>");
         fgets(option, sizeof(option), stdin);
-
         if(strstr(option, "@")){
             file_name=removeSubstring(option, "@");
             file=fopen(file_name, "r");
